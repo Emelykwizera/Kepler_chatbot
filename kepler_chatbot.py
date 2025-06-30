@@ -2,49 +2,31 @@ import pandas as pd
 import streamlit as st
 import re
 import os
-import traceback
 import base64
 from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
-import logging
-from typing import Tuple, Optional, Dict, List
-
-# ====================== CONSTANTS & CONFIGURATION ======================
-DATA_FILE = "kepler_data.xlsx"
-SHEETS_TO_LOAD = ["Admissions", "Programs", "Orientation", "Draft"]
-MODEL_NAME = "all-MiniLM-L6-v2"
-SIMILARITY_THRESHOLD = 0.85
-MIN_SIMILARITY = 0.6
-
-# ====================== LOGGING SETUP ======================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # ====================== CORE FUNCTIONS ======================
 @st.cache_resource(show_spinner=False)
-def load_semantic_model() -> Optional[SentenceTransformer]:
-    """Load and warm up the semantic similarity model."""
+def load_semantic_model():
     try:
-        model = SentenceTransformer(MODEL_NAME, device='cpu')
-        model.encode(["warmup"], show_progress_bar=False)
-        logger.info("Semantic model loaded successfully")
+        # Pre-load the model with optimized settings
+        model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        # Warmup with a small batch
+        model.encode(["warmup"], batch_size=1, show_progress_bar=False)
         return model
     except Exception as e:
-        logger.error(f"Failed to load AI model: {str(e)}")
-        st.error("⚠️ Failed to initialize the AI engine. Please try again later.")
+        st.error(f"Failed to load AI model: {str(e)}")
         return None
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def load_data() -> Tuple[Optional[Dict], Optional[Dict]]:
-    """Load and process the knowledge base from Excel."""
+def load_data():
     try:
-        if not os.path.exists(DATA_FILE):
-            raise FileNotFoundError(f"Data file not found at: {os.path.abspath(DATA_FILE)}")
+        excel_file = "kepler_data.xlsx"
+        if not os.path.exists(excel_file):
+            raise FileNotFoundError(f"Excel file not found at: {os.path.abspath(excel_file)}")
         
         model = load_semantic_model()
         if model is None:
@@ -52,23 +34,23 @@ def load_data() -> Tuple[Optional[Dict], Optional[Dict]]:
             
         knowledge_graph = defaultdict(list)
         
-        for sheet_name in SHEETS_TO_LOAD:
+        for sheet_name in ["Draft", "Admissions", "Orientation", "Programs"]:
             try:
-                df = pd.read_excel(
-                    DATA_FILE,
-                    sheet_name=sheet_name,
-                    usecols=["Questions", "Answers"],
-                    engine='openpyxl'
-                ).dropna()
+                # Read data in optimized way
+                df = pd.read_excel(excel_file, 
+                                 sheet_name=sheet_name,
+                                 usecols=["Questions", "Answers"],
+                                 engine='openpyxl').dropna()
                 
                 questions = df["Questions"].astype(str).tolist()
                 answers = df["Answers"].astype(str).tolist()
                 
-                if not questions:
-                    logger.warning(f"No questions found in sheet: {sheet_name}")
-                    continue
-                
-                embeddings = model.encode(questions, show_progress_bar=False)
+                # Process embeddings in batches for better performance
+                batch_size = 32
+                embeddings = []
+                for i in range(0, len(questions), batch_size):
+                    batch = questions[i:i + batch_size]
+                    embeddings.extend(model.encode(batch, show_progress_bar=False, convert_to_tensor=False))
                 
                 for idx, (question, answer) in enumerate(zip(questions, answers)):
                     entry = {
@@ -80,47 +62,42 @@ def load_data() -> Tuple[Optional[Dict], Optional[Dict]]:
                     }
                     knowledge_graph[sheet_name].append(entry)
                 
-                logger.info(f"Successfully loaded sheet: {sheet_name}")
-                
             except Exception as sheet_error:
-                logger.warning(f"Couldn't load sheet '{sheet_name}': {str(sheet_error)}")
+                st.warning(f"Couldn't load sheet '{sheet_name}': {str(sheet_error)}")
                 continue
         
         return {"loaded": True}, knowledge_graph
         
     except Exception as e:
-        logger.error(f"Critical error loading data: {str(e)}")
-        st.error("⚠️ Failed to load knowledge base. Please check the data file.")
+        st.error(f"Critical error loading data: {str(e)}")
         return None, None
 
-def semantic_search(
-    user_question: str,
-    knowledge_graph: Dict,
-    model: SentenceTransformer
-) -> Tuple[Optional[str], Optional[str], List[str]]:
-    """Perform semantic search on the knowledge graph."""
+def semantic_search(user_question, knowledge_graph, model):
     try:
         if not user_question.strip():
             return None, None, []
             
-        # Pre-process the question
-        sanitized_question = re.sub(r'[^\w\s]', '', user_question.lower())
-        question_embedding = model.encode([sanitized_question], show_progress_bar=False)
+        # Optimized question processing
+        question_embedding = model.encode([user_question], 
+                                        batch_size=1,
+                                        show_progress_bar=False,
+                                        convert_to_tensor=False)
         
         best_match = None
         best_score = 0
         best_source = None
-        diagnostics = []
         
-        # Search through all sheets in priority order
-        for sheet_name in SHEETS_TO_LOAD:
+        # Search priority based on likely user intent
+        search_order = ["Admissions", "Programs", "Orientation", "Draft"]
+        
+        for sheet_name in search_order:
             for entry in knowledge_graph.get(sheet_name, []):
                 sim = cosine_similarity(
-                    question_embedding,
+                    [question_embedding],
                     [entry["embedding"]]
                 )[0][0]
                 
-                if sim > SIMILARITY_THRESHOLD:
+                if sim > 0.85:  # Early exit for good matches
                     return entry["answer"], sheet_name, [f"Exact match: {sim:.2f}"]
                 
                 if sim > best_score:
@@ -128,19 +105,12 @@ def semantic_search(
                     best_match = entry["answer"]
                     best_source = sheet_name
         
-        if best_score > MIN_SIMILARITY:
-            diagnostics.append(f"Best match: {best_score:.2f}")
-            return best_match, best_source, diagnostics
-        
+        if best_score > 0.6:
+            return best_match, best_source, [f"Best match: {best_score:.2f}"]
         return None, None, []
 
-    except Exception as e:
-        logger.error(f"Error in semantic search: {str(e)}")
-        return None, None, ["Search error"]
-
-# ====================== UI COMPONENTS ======================
-def inject_custom_css() -> None:
-    """Inject custom CSS styles for the application."""
+# ====================== UI COMPONENTS ====================== 
+def inject_custom_css():
     st.markdown("""
     <style>
         /* Developer image */
@@ -160,6 +130,7 @@ def inject_custom_css() -> None:
             box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
         }
 
+        
         /* Header */
         .header {
             margin-top: 70px;
@@ -179,7 +150,6 @@ def inject_custom_css() -> None:
             clear: both;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        
         .bot-message {
             background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
             color: #333;
@@ -191,18 +161,15 @@ def inject_custom_css() -> None:
             clear: both;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        
         .chat-container {
             max-height: 65vh;
             overflow-y: auto;
             padding: 15px;
         }
-        
         .typing-indicator {
             display: inline-flex;
             padding: 0.5rem 1rem;
         }
-        
         .typing-dot {
             animation: blink 1.4s infinite both;
             background-color: #666;
@@ -211,111 +178,66 @@ def inject_custom_css() -> None:
             margin: 0 2px;
             width: 8px;
         }
-        
         @keyframes blink {
             0% { opacity: 0.2; }
             50% { opacity: 1; }
             100% { opacity: 0.2; }
         }
-        
-        /* Suggested questions */
-        .suggested-question {
-            display: inline-block;
-            margin: 0.25rem;
-            padding: 0.5rem 1rem;
-            background-color: #f0f2f6;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .suggested-question:hover {
-            background-color: #dbe4f8;
-            transform: scale(1.02);
-        }
     </style>
     """, unsafe_allow_html=True)
 
-def get_image_base64(path: str) -> str:
-    """Convert image to base64 string."""
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception as e:
-        logger.warning(f"Couldn't load image: {str(e)}")
-        return ""
-
-def format_response(response: str, source: str) -> str:
-    """Format the bot response with consistent styling."""
-    if not response:
-        return "I couldn't find a good answer. Try asking about:\n- Admissions requirements\n- Available programs\n- Orientation schedule"
-    
-    return f"""
-{response}
-
----
-*Source: {source} | [✉️ Report issue](#)*
-"""
-
-def get_suggested_questions(topic: str) -> List[str]:
-    """Get contextually relevant follow-up questions."""
-    suggestions = {
-        "Admissions": [
-            "What are the admission requirements?",
-            "When is the application deadline?",
-            "What documents do I need to apply?"
-        ],
-        "Programs": [
-            "What undergraduate programs are offered?",
-            "Are there any scholarship opportunities?",
-            "What's the duration of the MBA program?"
-        ],
-        "Orientation": [
-            "When does orientation week start?",
-            "What activities are planned for orientation?",
-            "Is orientation mandatory for new students?"
-        ],
-        "default": [
-            "Tell me about admissions",
-            "What programs are available?",
-            "When is the next orientation?"
-        ]
-    }
-    return suggestions.get(topic, suggestions["default"])
+def get_image_base64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 # ====================== MAIN APPLICATION ======================
-def initialize_session_state() -> None:
-    """Initialize the Streamlit session state."""
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-        st.session_state.knowledge_graph = None
-        st.session_state.typing = False
-        st.session_state.last_topic = None
-        st.session_state.suggested_questions = []
-
-def display_header() -> None:
-    """Display the application header and profile image."""
+def main():
+    st.set_page_config(
+        page_title="Kepler Thinking Assistant",
+        page_icon="🧠",
+        layout="centered",
+        initial_sidebar_state="collapsed"
+    )
+    
+    inject_custom_css()
+    
+    # Load profile image (unchanged)
     try:
         img_base64 = get_image_base64("mine.jpg")
         st.markdown(f"""
-        <div style="text-align: center;">
+        <div class="developer-image-container">
             <img src="data:image/jpeg;base64,{img_base64}" 
                  class="developer-image" 
                  title="Created by Emely">
         </div>
         """, unsafe_allow_html=True)
     except Exception as e:
-        logger.warning(f"Couldn't load profile image: {str(e)}")
+        st.warning(f"Couldn't load profile image: {str(e)}")
     
+    # Header (unchanged)
     st.markdown("""
     <div class="header">
         <h1>Kepler Thinking Assistant 🧠</h1>
         <p>Ask me anything about Kepler University</p>
     </div>
     """, unsafe_allow_html=True)
-
-def display_chat() -> None:
-    """Display the chat conversation and typing indicator."""
+    
+    # Load resources with optimized caching
+    with st.spinner("Initializing system (this only happens once)..."):
+        model = load_semantic_model()
+        _, knowledge_graph = load_data()
+        
+        if model is None or knowledge_graph is None:
+            st.error("Failed to load required components")
+            st.stop()
+    
+    # Initialize chat history (unchanged)
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        st.session_state.knowledge_graph = knowledge_graph
+        st.session_state.typing = False
+    
+    # Display chat messages (unchanged)
     chat_container = st.container()
     with chat_container:
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
@@ -344,82 +266,34 @@ def display_chat() -> None:
             """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
-
-def display_suggested_questions() -> None:
-    """Display suggested follow-up questions if available."""
-    if st.session_state.suggested_questions:
-        st.markdown("**You might ask:**")
-        cols = st.columns(3)
-        for i, question in enumerate(st.session_state.suggested_questions[:3]):
-            with cols[i % 3]:
-                if st.button(question, key=f"suggested_{i}"):
-                    handle_user_question(question)
-
-def handle_user_question(question: str) -> None:
-    """Process a user question and generate response."""
-    st.session_state.messages.append({"role": "user", "content": question})
-    st.session_state.typing = True
-    st.rerun()
     
-    try:
-        response, source, _ = semantic_search(
-            question,
-            st.session_state.knowledge_graph,
-            load_semantic_model()
-        )
-        
-        formatted_response = format_response(response, source)
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": formatted_response
-        })
-        
-        # Update suggested questions based on topic
-        st.session_state.last_topic = source if source else "default"
-        st.session_state.suggested_questions = get_suggested_questions(
-            st.session_state.last_topic
-        )
-        
-    except Exception as e:
-        logger.error(f"Error generating response: {str(e)}")
-        st.session_state.messages.append({
-            "role": "assistant", 
-            "content": "⚠️ Sorry, I encountered an error. Please try again."
-        })
-        st.session_state.suggested_questions = get_suggested_questions("default")
-    finally:
-        st.session_state.typing = False
-        st.rerun()
-
-def main() -> None:
-    """Main application function."""
-    st.set_page_config(
-        page_title="Kepler Thinking Assistant",
-        page_icon="🧠",
-        layout="centered",
-        initial_sidebar_state="collapsed"
-    )
-    
-    inject_custom_css()
-    initialize_session_state()
-    display_header()
-    
-    # Load resources
-    with st.spinner("Initializing system..."):
-        if st.session_state.knowledge_graph is None:
-            _, knowledge_graph = load_data()
-            if knowledge_graph is not None:
-                st.session_state.knowledge_graph = knowledge_graph
-            else:
-                st.error("Failed to load knowledge base. Please check the data file.")
-                st.stop()
-    
-    display_chat()
-    display_suggested_questions()
-    
-    # Handle user input
+    # Handle user input (unchanged except for progress indicator)
     if prompt := st.chat_input("Type your question..."):
-        handle_user_question(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.typing = True
+        st.rerun()
+        
+        try:
+            with st.spinner("🧠 Finding the best answer..."):
+                response, source, _ = semantic_search(prompt, st.session_state.knowledge_graph, model)
+            
+            if response:
+                formatted_response = f"{response}\n\n*(Source: {source} section)*"
+            else:
+                formatted_response = "I couldn't find a good answer. Try asking about admissions, programs, or orientation."
+            
+            st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+            
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}")
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": "Sorry, I encountered an error. Please try again."
+            })
+        
+        finally:
+            st.session_state.typing = False
+            st.rerun()
 
 if __name__ == "__main__":
     main()

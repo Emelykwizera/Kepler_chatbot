@@ -11,12 +11,11 @@ import numpy as np
 import hashlib
 import time
 
-# ====================== OPTIMIZED CORE FUNCTIONS ======================
+# ====================== CORE FUNCTIONS ======================
 @st.cache_resource(show_spinner=False)
 def load_semantic_model():
     try:
         model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        # Warm up the model
         model.encode(["warmup"], show_progress_bar=False)
         return model
     except Exception as e:
@@ -71,7 +70,6 @@ def semantic_search(user_question, knowledge_graph, model):
         if not user_question.strip():
             return None, None, []
             
-        # Process in chunks for better performance
         question_embedding = model.encode([user_question], 
                                         convert_to_tensor=True,
                                         show_progress_bar=False)
@@ -80,7 +78,6 @@ def semantic_search(user_question, knowledge_graph, model):
         best_score = 0
         best_source = None
         
-        # Search most relevant sheets first
         for sheet_name in ["Admissions", "Programs", "Orientation", "Draft"]:
             for entry in knowledge_graph.get(sheet_name, []):
                 sim = cosine_similarity(
@@ -88,7 +85,6 @@ def semantic_search(user_question, knowledge_graph, model):
                     [entry["embedding"]]
                 )[0][0]
                 
-                # Early termination for high-confidence matches
                 if sim > 0.85:
                     return entry["answer"], sheet_name, [f"Exact match: {sim:.2f}"]
                 
@@ -97,46 +93,81 @@ def semantic_search(user_question, knowledge_graph, model):
                     best_match = (entry["answer"], sheet_name)
         
         return best_match + ([f"Best match: {best_score:.2f}"]) if best_score > 0.6 else (None, None, [])
-        
-    except Exception as e:
-        st.error(f"Search error: {str(e)}")
-        return None, None, []
 
 # ====================== UI COMPONENTS ======================
 def inject_custom_css():
     st.markdown("""
     <style>
-        /* Developer image styling */
-        .developer-image-container {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            z-index: 1000;
-        }
+        /* Developer image */
         .developer-image {
             width: 60px;
             height: 60px;
             border-radius: 50%;
             object-fit: cover;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            border: 2px solid #ffffff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
         }
+
+        .developer-image:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+        }
+
         
-        /* Header adjustments */
+        /* Header */
         .header {
             margin-top: 70px;
             text-align: center;
             margin-bottom: 1rem;
         }
         
-        /* Chat container */
+        /* Chat messages */
+        .user-message {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            border-radius: 18px 18px 0 18px;
+            padding: 12px 16px;
+            margin: 8px 0;
+            max-width: 80%;
+            float: right;
+            clear: both;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .bot-message {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            color: #333;
+            border-radius: 18px 18px 18px 0;
+            padding: 12px 16px;
+            margin: 8px 0;
+            max-width: 80%;
+            float: left;
+            clear: both;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
         .chat-container {
             max-height: 65vh;
             overflow-y: auto;
             padding: 15px;
         }
-        
-        /* Rest of your existing styles... */
+        .typing-indicator {
+            display: inline-flex;
+            padding: 0.5rem 1rem;
+        }
+        .typing-dot {
+            animation: blink 1.4s infinite both;
+            background-color: #666;
+            border-radius: 50%;
+            height: 8px;
+            margin: 0 2px;
+            width: 8px;
+        }
+        @keyframes blink {
+            0% { opacity: 0.2; }
+            50% { opacity: 1; }
+            100% { opacity: 0.2; }
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -146,7 +177,6 @@ def get_image_base64(path):
 
 # ====================== MAIN APPLICATION ======================
 def main():
-    # Must be first Streamlit command
     st.set_page_config(
         page_title="Kepler Thinking Assistant",
         page_icon="🧠",
@@ -154,10 +184,9 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
-    # Inject CSS
     inject_custom_css()
     
-    # Load image (using base64 for reliability)
+    # Load profile image
     try:
         img_base64 = get_image_base64("mine.jpg")
         st.markdown(f"""
@@ -178,7 +207,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Load resources with progress
+    # Load resources
     with st.spinner("Initializing system..."):
         model = load_semantic_model()
         _, knowledge_graph = load_data()
@@ -187,37 +216,68 @@ def main():
             st.error("Failed to load required components")
             st.stop()
     
-    # Initialize chat
+    # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
         st.session_state.knowledge_graph = knowledge_graph
+        st.session_state.typing = False
     
-    # Display chat
+    # Display chat messages
     chat_container = st.container()
     with chat_container:
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         
-        for msg in st.session_state.messages:
-            role_class = "user-message" if msg["role"] == "user" else "bot-message"
-            st.markdown(f'<div class="{role_class}">{msg["content"]}</div>', 
-                       unsafe_allow_html=True)
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                st.markdown(
+                    f'<div class="user-message">👤 {message["content"]}</div>', 
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="bot-message">🤖 {message["content"]}</div>', 
+                    unsafe_allow_html=True
+                )
+        
+        # Show typing indicator
+        if st.session_state.get("typing", False):
+            st.markdown("""
+            <div class="bot-message">
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Handle input
+    # Handle user input
     if prompt := st.chat_input("Type your question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.typing = True
+        st.rerun()
         
-        with st.spinner("Thinking..."):
-            time.sleep(0.2)  # Small delay for UI feedback
+        try:
             response, source, _ = semantic_search(prompt, st.session_state.knowledge_graph, model)
             
             if response:
-                formatted = f"{response}\n\n*(Source: {source})*"
+                formatted_response = f"{response}\n\n*(Source: {source} section)*"
             else:
-                formatted = "I'm not sure about that. Try asking about admissions, programs, or orientation."
+                formatted_response = "I couldn't find a good answer. Try asking about admissions, programs, or orientation."
             
-            st.session_state.messages.append({"role": "assistant", "content": formatted})
+            st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+            
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}")
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": "Sorry, I encountered an error. Please try again."
+            })
+        
+        finally:
+            st.session_state.typing = False
             st.rerun()
 
 if __name__ == "__main__":

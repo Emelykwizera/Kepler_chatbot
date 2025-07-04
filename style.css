@@ -1,0 +1,55 @@
+/* ===== MAIN CHAT CONTAINER ===== */
+.stChatFloatingInputContainer {
+    background-color: #f0f2f6; /* Light gray background */
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* ===== USER QUESTION STYLING ===== */
+.stChatMessage.user {
+    background-color: #ffffff; /* White bubble */
+    border-left: 4px solid #4CAF50; /* Green accent */
+    border-radius: 12px 12px 0 12px;
+    margin-left: 20%;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* ===== BOT ANSWER STYLING ===== */
+.stChatMessage.assistant {
+    background-color: #f8f9fa; /* Light gray bubble */
+    border-left: 4px solid #2196F3; /* Blue accent */
+    border-radius: 12px 12px 12px 0;
+    margin-right: 20%;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* ===== TEXT INPUT BOX ===== */
+.stTextInput > div > input {
+    background-color: #ffffff !important;
+    border: 2px solid #4CAF50 !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+}
+
+/* ===== LOGO & HEADER STYLING ===== */
+.stApp header:before {
+    content: "";
+    background-image: url(mine.jpg);
+    background-size: contain;
+    background-repeat: no-repeat;
+    height: 50px;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.stTitle {
+    color: #2c3e50 !important;
+    font-family: 'Arial', sans-serif;
+}
+
+/* ===== REASONING EXPANDER ===== */
+.stExpander {
+    background-color: #e3f2fd !important;
+    border-left: 3px solid #2196F3 !important;
+}

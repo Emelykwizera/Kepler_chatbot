@@ -1,0 +1,154 @@
+<style>
+/* ===== MAIN STYLES ===== */
+.main-container {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* ===== HEADER STYLES ===== */
+.app-header {
+    display: flex;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 30px;
+}
+
+.logo-img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 20px;
+    border: 3px solid #4CAF50;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header-text h1 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 28px;
+}
+
+.header-text p {
+    margin: 5px 0 0;
+    color: #7f8c8d;
+    font-size: 16px;
+}
+
+/* ===== SIDEBAR STYLES ===== */
+.sidebar {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.sidebar-title {
+    color: #2c3e50;
+    font-size: 18px;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.nav-item {
+    padding: 10px 15px;
+    margin: 5px 0;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nav-item:hover {
+    background-color: #e3f2fd;
+    transform: translateX(3px);
+}
+
+/* ===== CHAT STYLES ===== */
+.chat-container {
+    padding: 20px;
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.user-message {
+    background-color: #f1f8e9;
+    border-left: 4px solid #4CAF50;
+    padding: 12px 15px;
+    margin: 10px 0 10px 20%;
+    border-radius: 8px 8px 0 8px;
+}
+
+.bot-message {
+    background-color: #e3f2fd;
+    border-left: 4px solid #2196F3;
+    padding: 12px 15px;
+    margin: 10px 20% 10px 0;
+    border-radius: 8px 8px 8px 0;
+}
+
+/* ===== INPUT STYLES ===== */
+.chat-input {
+    padding: 15px;
+    border: 2px solid #4CAF50 !important;
+    border-radius: 8px !important;
+    font-size: 16px !important;
+}
+
+/* ===== SUGGESTIONS ===== */
+.suggestions {
+    background-color: #e3f2fd;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+}
+
+.suggestion-btn {
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    margin: 5px 0;
+    border-radius: 5px;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.suggestion-btn:hover {
+    background-color: #bbdefb !important;
+}
+</style>
+
+<div class="main-container">
+    <!-- Header Section -->
+    <div class="app-header">
+        <img src="mine.jpg" class="logo-img" alt="Profile Logo">
+        <div class="header-text">
+            <h1>Kepler Thinking Assistant</h1>
+            <p>Your personalized education guide</p>
+        </div>
+    </div>
+
+    <!-- Sidebar Section -->
+    <div class="sidebar">
+        <div class="sidebar-title">Navigation Menu</div>
+        <div class="nav-item" onclick="handleNavClick('Admissions')">Admissions</div>
+        <div class="nav-item" onclick="handleNavClick('Programs')">Programs</div>
+        <div class="nav-item" onclick="handleNavClick('Orientation')">Orientation</div>
+        <div class="nav-item" onclick="handleNavClick('Draft')">Draft</div>
+    </div>
+
+    <!-- Chat Section will be injected by Streamlit -->
+</div>
+
+<script>
+function handleNavClick(section) {
+    // This function would be connected to Streamlit via custom components
+    console.log("Selected section:", section);
+    // In a real implementation, this would communicate with the Python backend
+}
+</script>

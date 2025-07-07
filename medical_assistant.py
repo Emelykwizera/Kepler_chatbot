@@ -1,90 +1,106 @@
 import streamlit as st
 import pandas as pd
-import openai
-from io import StringIO
+import sys
+import logging
 
-# Configure page
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- Package Validation ---
+try:
+    import openai
+except ImportError as e:
+    st.error(f"Critical Error: {str(e)}")
+    st.markdown("""
+    **Solution:**  
+    Please ensure your `requirements.txt` contains:
+    ```text
+    openai>=1.0.0
+    pandas>=2.0.0
+    ```
+    """)
+    st.stop()
+
+# --- API Key Validation ---
+if 'OPENAI_KEY' not in st.secrets:
+    st.error("""
+    **API Key Missing**  
+    Add your OpenAI key in Streamlit Secrets:
+    1. Go to app settings (⚙ icon)
+    2. Select "Secrets"
+    3. Add:  
+    ```toml
+    OPENAI_KEY = "your-api-key-here"
+    ```
+    """)
+    st.stop()
+
+# Initialize OpenAI
+client = openai.OpenAI(api_key=st.secrets.OPENAI_KEY)
+
+# --- Streamlit App ---
 st.set_page_config(
-    page_title="Medical Results Interpreter",
+    page_title="Medical AI Analyzer",
     page_icon="🏥",
     layout="wide"
 )
 
-# Title and description
-st.title("AI Medical Test Analyzer")
-st.markdown("""
-Upload patient test results in CSV format to get AI-powered interpretation and recommendations.
-""")
-
-# File upload section
-uploaded_file = st.file_uploader(
-    "Choose a CSV file",
-    type=["csv"],
-    help="Format: Test_Name,Result,Unit,Reference_Range"
-)
-
-if uploaded_file:
-    # Read and display data
+def analyze_results(df):
+    """Core analysis function with error handling"""
     try:
-        df = pd.read_csv(uploaded_file)
-        st.success("File successfully uploaded!")
-        
-        with st.expander("View Raw Data"):
-            st.dataframe(df)
-        
-        # Prepare data for analysis
         analysis_text = "\n".join(
             f"{row['Test_Name']}: {row['Result']} {row['Unit']} (Normal: {row['Reference_Range']})"
             for _, row in df.iterrows()
         )
         
-        # Analysis button
-        if st.button("Generate Medical Analysis", type="primary"):
-            with st.spinner("Analyzing with AI..."):
-                try:
-                    # Initialize OpenAI with Streamlit secrets
-                    openai.api_key = st.secrets["OPENAI_KEY"]
-                    
-                    # Generate analysis
-                    response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": """You are a medical specialist. Analyze these test results:
-                                1. Identify abnormal values
-                                2. Explain potential health implications
-                                3. Provide clinical recommendations
-                                Use professional but patient-friendly language."""
-                            },
-                            {
-                                "role": "user",
-                                "content": analysis_text
-                            }
-                        ],
-                        temperature=0.2  # Keep responses factual
-                    )
-                    
-                    # Display results
-                    analysis = response.choices[0].message.content
-                    
-                    st.subheader("AI Analysis Report")
-                    st.markdown(f"""<div style='background:#f0f2f6;padding:20px;border-radius:10px'>
-                                {analysis}
-                                </div>""", unsafe_allow_html=True)
-                    
-                    # Add download option
-                    st.download_button(
-                        label="Download Full Report",
-                        data=analysis,
-                        file_name="medical_analysis.txt",
-                        mime="text/plain"
-                    )
-                    
-                except Exception as e:
-                    st.error(f"Analysis failed: {str(e)}")
-                    st.info("Please check your OpenAI key in Streamlit secrets")
-    
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a medical expert. Analyze test results professionally."},
+                {"role": "user", "content": analysis_text}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content
+        
     except Exception as e:
-        st.error(f"Error reading file: {str(e)}")
-        st.info("Please ensure your CSV has columns: Test_Name,Result,Unit,Reference_Range")
+        logger.error(f"Analysis failed: {str(e)}")
+        return f"Analysis Error: {str(e)}"
+
+# --- UI Components ---
+st.title("Medical Test Interpreter")
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+
+if uploaded_file:
+    try:
+        df = pd.read_csv(uploaded_file)
+        st.success("✅ File loaded successfully!")
+        
+        with st.expander("View Data"):
+            st.dataframe(df)
+        
+        if st.button("Analyze Results", type="primary"):
+            with st.spinner("Generating medical analysis..."):
+                analysis = analyze_results(df)
+                st.subheader("Medical Analysis")
+                st.markdown(f"""<div style='background:#f0f9ff;padding:20px;border-radius:10px'>
+                            {analysis}
+                            </div>""", unsafe_allow_html=True)
+                
+                st.download_button(
+                    "Download Report",
+                    analysis,
+                    file_name="medical_report.txt"
+                )
+                
+    except Exception as e:
+        st.error(f"File Error: {str(e)}")
+        st.markdown("""
+        **Required CSV Format:**
+        ```csv
+        Test_Name,Result,Unit,Reference_Range
+        Glucose,98,mg/dL,70-99
+        HbA1c,5.8,%,<5.7
+        ```
+        """)
